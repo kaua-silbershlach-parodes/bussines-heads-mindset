@@ -58,6 +58,31 @@ reconstruct **82/82** article bodies.
   The 2 BLOCKED are text generation (T13 and the generation half of T14):
   the running Private AI container serves no LLM on this lab host, so the
   engine retrieves and guides; it does not generate new text.
+- `tests/run_precision_test.py` — the real Oracle tests at maximum
+  precision, with `tests/01-connection-test.sql`,
+  `tests/02-real-vector-check.sql`, and `tests/embed_articles.py`:
+  **PASS**. Connection and version (26ai, FREEPDB1 READ WRITE); real
+  vector check (82/82 articles and 771/771 chunks with both vectors,
+  384 dimensions); the parks-style exact top-10 — under MiniLM the
+  database reproduces the local engine's top-10 **exactly on 8/8
+  queries, same order and same distances to the 4th decimal**, the
+  same standard as Oracle's published parks result; approximate search
+  equals exact search **16/16**; provider embeddings equal in-database
+  embeddings (top-1 8/8, top-10 sets 8/8); chunk search agrees between
+  the database and the local engine **8/8**; the five distance metrics,
+  ORDS pagination (82/82), and cross-model top-1 agreement (8/8) all
+  pass. Two measured limits, stated plainly: the e5 graph executes
+  with a small runtime difference between Oracle's in-database runtime
+  and ONNX Runtime (vector cosine 0.9985, against 1.000000 for
+  MiniLM), so cross-runtime e5 top-10 sets agree on 5/8 queries with a
+  maximum distance delta of 0.0071 — while the outside-embedding
+  route (local e5 vectors stored in the database, searched with
+  `TO_VECTOR`) reproduces the top-10 **exactly on 8/8 queries, order
+  and distances**; and at chunk level the expected article is in the
+  top-5 chunks on 8/8 queries (top-1 on 5/8), with hybrid search
+  ranking the expected article first on 7/8. Embeddings are computed
+  one text per call everywhere — batching moves e5 distances by up to
+  ~0.006 and breaks exact reproduction.
 
 ## Usage
 

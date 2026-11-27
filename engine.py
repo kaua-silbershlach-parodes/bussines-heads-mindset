@@ -48,13 +48,23 @@ def load_session(model_path):
 
 
 def embed(session, texts):
+    # One text per call, like the workshop's reference embedding
+    # generator and like VECTOR_EMBEDDING in the database. Batching
+    # changes padding inside the augmented graph and moves e5
+    # distances by up to ~0.006; single-text calls keep the local
+    # engine and the database on the same numbers.
     inp = session.get_inputs()[0]
-    outs = session.run(None, {inp.name: np.array(texts, dtype=object)})
-    for out in outs:
-        arr = np.asarray(out, dtype=np.float64)
-        if arr.ndim == 2 and arr.shape[1] == DIMS:
-            return arr
-    raise RuntimeError("model produced no 384-dimension embedding output")
+    rows = []
+    for text in texts:
+        outs = session.run(None, {inp.name: np.array([text], dtype=object)})
+        for out in outs:
+            arr = np.asarray(out, dtype=np.float64)
+            if arr.ndim == 2 and arr.shape[1] == DIMS:
+                rows.append(arr[0])
+                break
+        else:
+            raise RuntimeError("model produced no 384-dimension embedding output")
+    return np.vstack(rows)
 
 
 def rank(session, docs, query, top):
