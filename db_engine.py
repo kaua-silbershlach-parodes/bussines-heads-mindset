@@ -85,12 +85,11 @@ def mode_hybrid(cur, query, top):
         + "}')) RETURNING VARCHAR2(32767)) FROM dual"
     ).fetchall()[0][0]
     hits = json.loads(raw)[:top]
-    titles = {
-        text: (tid, title)
-        for tid, title, text in cur.execute(
-            "SELECT id, title, text FROM articles"
-        ).fetchall()
-    }
+    titles = {}
+    for tid, title, text in cur.execute("SELECT id, title, text FROM articles").fetchall():
+        if hasattr(text, "read"):
+            text = text.read()
+        titles[text] = (tid, title)
     for i, hit in enumerate(hits, 1):
         chunk = hit["chunk_text"]
         owner = next(

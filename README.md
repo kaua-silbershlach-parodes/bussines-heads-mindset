@@ -86,12 +86,174 @@ reconstruct **82/82** article bodies.
 
 ## Usage
 
+Install the local engine's requirements (the two models arrive through
+Git LFS):
+
 ```bash
+git lfs pull
 pip install -r requirements.txt
-python engine.py "how to start a business without capital"
-python engine.py --chunks "finding an investor"
-python tests/run_engine_test.py
-python tests/run_structure_test.py
 ```
+
+### Use case 1 — ask the collection a question (local, no database)
+
+```bash
+python engine.py "how to start a business without capital" --model minilm --top 3
+```
+
+```text
+1. [bh-001] 15 tips on how to start your business without initial capital — 0.850
+2. [bh-032] Help for aspiring entrepreneurs — 0.533
+3. [bh-010] Why Start a Business from the End — 0.491
+```
+
+### Use case 2 — ask in another language (multilingual e5)
+
+The e5 model covers 100 languages, so the question does not need to be
+in English:
+
+```bash
+python engine.py "como delegar autoridade corretamente" --model e5 --top 3
+```
+
+```text
+1. [bh-045] How to delegate authority correctly — 0.845
+2. [bh-066] Don't stand still. Motivation for every day — 0.798
+3. [bh-059] How to convince a person: 10 simple tips — 0.796
+```
+
+### Use case 3 — find the exact passage, not just the article
+
+`--chunks` searches the 771 article chunks and cites the article and
+chunk that answer the question:
+
+```bash
+python engine.py --chunks "finding an investor" --top 3
+```
+
+```text
+1. [bh-032 chunk 1] 0.880
+2. [bh-032 chunk 6] 0.877
+3. [bh-010 chunk 10] 0.877
+```
+
+### Use case 4 — search inside Oracle AI Database 26ai
+
+With the lab schema prepared (models loaded in-database, tables
+populated from `data/articles.dmp` or `data/articles_schema.sql`),
+`db_engine.py` runs the same search with the database's own stack.
+Exact search embeds the query inside the database:
+
+```bash
+python db_engine.py "how to start a business without capital" --model minilm --top 3
+```
+
+```text
+1. [bh-001] 15 tips on how to start your business without initial capital — 0.8499
+2. [bh-032] Help for aspiring entrepreneurs — 0.5330
+3. [bh-010] Why Start a Business from the End — 0.4907
+```
+
+The same ranking as the local engine — the precision test proves the
+top-10 identical, order and distances, on 8/8 reference queries.
+
+### Use case 5 — approximate search over the vector indexes
+
+```bash
+python db_engine.py "how to delegate authority correctly" --mode approx --top 3
+```
+
+```text
+1. [bh-045] How to delegate authority correctly — 0.9104
+2. [bh-041] How to develop self-discipline — 0.8418
+3. [bh-059] How to convince a person: 10 simple tips — 0.8418
+```
+
+### Use case 6 — hybrid search (vector + text fusion)
+
+```bash
+python db_engine.py "finding an investor" --mode hybrid --top 3
+```
+
+```text
+1. [bh-032] Help for aspiring entrepreneurs — score 70.71 (vector 71.48, text 63.00)
+   You can earn by searching for investors who can be useful for both business beginners...
+2. [bh-001] 15 tips on how to start your business without initial capital — score 66.65 (vector 68.02, text 53.00)
+   1. Find a partner who will invest. 2. Negotiate with partners about the share of profits...
+3. [bh-011] What is the need for risk in business? — score 59.75 (vector 65.33, text 4.00)
+```
+
+### Use case 7 — provider embeddings from the Private AI container
+
+```bash
+python db_engine.py "how to save money while running a small business" --mode provider --model minilm --top 3
+```
+
+```text
+1. [bh-057] How to save money while running a small business? — 0.7933
+2. [bh-053] Why your business could be losing money — 0.5263
+3. [bh-034] 7 millionaire tips — 0.5091
+```
+
+### Use case 8 — RAG retrieval over the chunks
+
+```bash
+python db_engine.py "how to start a business without capital" --mode rag
+```
+
+```text
+Retrieved context:
+  [bh-001 chunk 2] 15 tips on how to start your business without initial capital
+  [bh-001 chunk 3] 15 tips on how to start your business without initial capital
+Top article (15 tips on how to start your business without initial capital) split for the prompt: 18 chunks at a 10-word maximum (UTL_TO_CHUNKS).
+```
+
+Grounded generation additionally needs an LLM endpoint configured for
+the lab host; retrieval works without one.
+
+### Use case 9 — read the corpus over REST (no SQL connection)
+
+```bash
+python db_engine.py --mode rest
+curl "http://localhost:8080/ords/mindset/articles/?limit=100"
+```
+
+The ORDS endpoint serves all 82 articles as JSON, with pagination
+(`limit`/`offset`).
+
+### Use case 10 — restore the database from the dump
+
+```bash
+impdp mindset/<password>@localhost:1521/FREEPDB1 \
+  directory=DATA_PUMP_DIR dumpfile=articles.dmp \
+  tables=ARTICLES,ARTICLE_CHUNKS,ARTICLE_IMAGES
+```
+
+The dump carries the 82 articles 100% — bodies, chunks, images, and
+both vector columns populated (round-trip proof in the tests section).
+
+### Use case 11 — rebuild the vectors outside the database
+
+On platforms where loading the model into the database is blocked
+(Windows Free, ORA-40216), generate the embeddings with the same model
+files and store them — the route Oracle's own material describes, and
+the one the precision test proves exact on 8/8 queries for e5:
+
+```bash
+python tests/embed_articles.py
+```
+
+### Use case 12 — verify everything
+
+```bash
+python tests/run_engine_test.py        # 16/16, both models
+python tests/run_structure_test.py     # 10/10, corpus = articles 100%
+python tests/run_full_suite_linux.py   # 16 PASS + 2 BLOCKED
+python tests/run_precision_test.py     # parks-style exact top-10, PASS
+```
+
+Connection settings for the database modes come from the environment:
+`ORACLE_LAB_USER` (default `mindset`), `ORACLE_LAB_PW`,
+`ORACLE_LAB_DSN` (default `localhost:1521/FREEPDB1`), and `ORDS_URL`
+(default `http://localhost:8080/ords/mindset/articles/`).
 
 Copyright © A Elite Estrangeira.
