@@ -83,6 +83,37 @@ reconstruct **82/82** article bodies.
   ranking the expected article first on 7/8. Embeddings are computed
   one text per call everywhere — batching moves e5 distances by up to
   ~0.006 and breaks exact reproduction.
+- `tests/run_cache_test.py` — **10/10**: cached embeddings equal fresh
+  vectors and reproduce the same top-10 under both models, and a
+  changed text set recomputes instead of serving stale vectors.
+
+## The mindset applied to the engine itself
+
+The collection was turned on its own engine: four improvement
+questions were put to the 82 articles, and each answer became a
+change to code that already existed — nothing invented around it.
+
+- *"How to stop wasting time and money on repeated work"* →
+  `bh-061` (Stop doing this right now), `bh-075` (Increased
+  productivity). The engine re-embedded all 82 articles and 771
+  chunks on every run. It now caches the vectors, keyed by the
+  corpus hash: a repeat query drops from **36.9 s to 1.3 s**,
+  results identical (cache test 10/10).
+- *"How to delegate work to a system instead of doing it manually"*
+  → `bh-045` (How to delegate authority correctly). Hybrid search
+  identified a hit's article by matching chunk text by hand; it now
+  delegates that to the database — the hit's `ROWID` names the
+  owning article exactly.
+- *"Discipline and daily habits to maintain quality"* → `bh-041`
+  (How to develop self-discipline), `bh-076` (qualities that should
+  become habits). The engine now says so when a match is weak (top
+  score under 0.35) instead of presenting noise as an answer, and
+  the cache ships with its own regression test.
+- *"How to present a project clearly to convince people"* →
+  `bh-044` (How to properly present a project to an investor),
+  `bh-059` (How to convince a person). Results now show where to
+  read next: article results carry their file path, and chunk
+  results carry the passage itself.
 
 ## Usage
 
@@ -102,9 +133,20 @@ python engine.py "how to start a business without capital" --model minilm --top 
 
 ```text
 1. [bh-001] 15 tips on how to start your business without initial capital — 0.850
+   articles/001-15-tips-on-how-to-start-your-business-without-initial-capital-12-14.md
 2. [bh-032] Help for aspiring entrepreneurs — 0.533
+   articles/032-Help-for-aspiring-entrepreneurs-12-22.md
 3. [bh-010] Why Start a Business from the End — 0.491
+   articles/010-Why-Start-a-Business-from-the-End-12-14.md
 ```
+
+The first run embeds the collection once and caches the vectors
+(keyed by the corpus hash, under `data/.embedding-cache/`); later
+runs reuse them — measured on the lab host, a repeat query drops
+from 36.9 s to 1.3 s with identical results. A question the
+collection does not cover is flagged instead of dressed up: a top
+score under 0.35 prints `Weak match: the collection may not cover
+this question.`
 
 ### Use case 2 — ask in another language (multilingual e5)
 
@@ -132,7 +174,9 @@ python engine.py --chunks "finding an investor" --top 3
 
 ```text
 1. [bh-032 chunk 1] 0.880
+   You can earn by searching for investors who can be useful for both business beginners...
 2. [bh-032 chunk 6] 0.877
+   sides. A group of people, i.e. investors, who would like to expand their activities...
 3. [bh-010 chunk 10] 0.877
 ```
 

@@ -85,17 +85,13 @@ def mode_hybrid(cur, query, top):
         + "}')) RETURNING VARCHAR2(32767)) FROM dual"
     ).fetchall()[0][0]
     hits = json.loads(raw)[:top]
-    titles = {}
-    for tid, title, text in cur.execute("SELECT id, title, text FROM articles").fetchall():
-        if hasattr(text, "read"):
-            text = text.read()
-        titles[text] = (tid, title)
     for i, hit in enumerate(hits, 1):
         chunk = hit["chunk_text"]
-        owner = next(
-            (v for text, v in titles.items() if chunk[:60] in text or text.startswith(chunk[:40])),
-            ("?", "?"),
-        )
+        # The hit carries the row's ROWID: the database itself names
+        # the owning article, exactly — no text matching.
+        owner = cur.execute(
+            "SELECT id, title FROM articles WHERE rowid = :r", r=hit.get("rowid")
+        ).fetchone() or ("?", "?")
         print(
             f"{i}. [{owner[0]}] {owner[1]} — score {hit['score']:.2f} "
             f"(vector {hit['vector_score']:.2f}, text {hit['text_score']:.2f})"

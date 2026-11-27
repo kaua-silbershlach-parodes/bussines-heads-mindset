@@ -23,6 +23,7 @@ model files do not load.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -37,6 +38,8 @@ MODELS = {
     "e5": os.path.join(ROOT, "models", "multilingual_e5_small.onnx"),
 }
 DIMS = 384
+CACHE_DIR = os.path.join(ROOT, "data", ".embedding-cache")
+WEAK_MATCH = 0.35
 
 
 def load_session(model_path):
@@ -67,8 +70,31 @@ def embed(session, texts):
     return np.vstack(rows)
 
 
-def rank(session, docs, query, top):
-    doc_vecs = embed(session, docs)
+def embed_cached(session, model_name, kind, texts):
+    """Embeddings for a fixed text set, computed once and reused.
+
+    The cache file is keyed by the SHA-256 of the exact texts, so any
+    corpus change invalidates it automatically. Cached vectors are the
+    same numbers embed() produces — the cache only stops the engine
+    from redoing finished work on every run.
+    """
+    digest = hashlib.sha256("\n".join(texts).encode("utf-8")).hexdigest()
+    path = os.path.join(CACHE_DIR, f"{model_name}-{kind}-{digest[:16]}.npy")
+    if os.path.exists(path):
+        vecs = np.load(path)
+        if vecs.shape == (len(texts), DIMS):
+            return vecs
+    vecs = embed(session, texts)
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    np.save(path, vecs)
+    return vecs
+
+
+def rank(session, docs, query, top, model_name=None, kind="docs"):
+    if model_name is not None:
+        doc_vecs = embed_cached(session, model_name, kind, docs)
+    else:
+        doc_vecs = embed(session, docs)
     query_vec = embed(session, [query])[0]
     doc_vecs = doc_vecs / np.linalg.norm(doc_vecs, axis=1, keepdims=True)
     query_vec = query_vec / np.linalg.norm(query_vec)
@@ -97,18 +123,30 @@ def main():
     if args.chunks:
         with open(os.path.join(ROOT, "data", "article_chunks.json"), encoding="utf-8") as f:
             chunks = json.load(f)
-        order, scores = rank(session, [c["text"] for c in chunks], args.query, args.top)
+        order, scores = rank(
+            session, [c["text"] for c in chunks], args.query, args.top,
+            model_name=args.model, kind="chunks",
+        )
         for rank_no, idx in enumerate(order, 1):
             c = chunks[idx]
             print(f"{rank_no}. [{c['article_id']} chunk {c['chunk_index']}] {scores[idx]:.3f}")
+            print(f"   {c['text'][:110]}...")
+        if len(order) and scores[order[0]] < WEAK_MATCH:
+            print("Weak match: the collection may not cover this question.")
         return 0
 
     with open(os.path.join(ROOT, "corpus.json"), encoding="utf-8") as f:
         corpus = json.load(f)
     docs = [f"{item['title']}. {item['text']}" for item in corpus]
-    order, scores = rank(session, docs, args.query, args.top)
+    order, scores = rank(
+        session, docs, args.query, args.top,
+        model_name=args.model, kind="articles",
+    )
     for rank_no, idx in enumerate(order, 1):
         print(f"{rank_no}. [{corpus[idx]['id']}] {corpus[idx]['title']} — {scores[idx]:.3f}")
+        print(f"   {corpus[idx]['article_file']}")
+    if len(order) and scores[order[0]] < WEAK_MATCH:
+        print("Weak match: the collection may not cover this question.")
     return 0
 
 
